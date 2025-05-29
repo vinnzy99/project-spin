@@ -1,6 +1,7 @@
 <?php
 namespace App\Controllers;
     use App\Models\UsersModel;
+    use Config\Database;
 
 class Home extends BaseController
 {
@@ -11,11 +12,9 @@ class Home extends BaseController
 
 public function dologin()
 {
-    // Ambil input
     $noAgen = $this->request->getPost('no_agen');
     $noTelp = $this->request->getPost('no_telp');
 
-    // Validasi input
     $validation = \Config\Services::validation();
     $validation->setRules([
         'no_agen' => 'required',
@@ -29,32 +28,38 @@ public function dologin()
     }
 
     $userModel = new \App\Models\UsersModel();
-
-    // Cek apakah agen sudah ada
     $user = $userModel->where('no_agen', $noAgen)->first();
 
     if ($user) {
-        // Jika ada, cek nomor telepon
         if ($user['no_telp'] === $noTelp) {
-            // Login sukses → update status jadi aktif (1)
             $userModel->update($user['id'], ['status' => 1]);
 
             session()->set('logged_in', true);
             session()->set('noAgen', $noAgen);
-            return redirect()->to('/buktifoto');
+            session()->set('role', $user['role']); // SET SESSION ROLE
+
+            // Redirect sesuai role
+            if ($user['role'] === 'admin') {
+                return redirect()->to('/admin/dashboard'); // arahkan ke halaman admin
+            } else {
+                return redirect()->to('/buktifoto');
+            }
         } else {
             return redirect()->back()->with('error', 'Nomor telepon anda salah!');
         }
     } else {
-        // Belum ada → buat akun baru (register)
-        $userModel->insert([
+        // Auto-assign role user
+        $userModel->insert([    
             'no_agen' => $noAgen,
             'no_telp' => $noTelp,
-            'status'  => 1, // langsung aktif
+            'status'  => 1,
+            'role'    => 'user', // default user
         ]);
 
         session()->set('logged_in', true);
         session()->set('noAgen', $noAgen);
+        session()->set('role', 'user');
+
         return redirect()->to('/buktifoto');
     }
 }
@@ -89,16 +94,12 @@ public function kirimfoto()
         $pathFoto = 'assets/image/' . $aseli;
 
         $db = \Config\Database::connect();
-        $db->table('bukti_foto')->insert([
-            'no_agen' => $noAgen,
-            'deskripsi' => $deskripsi,
-            'path_foto' => $pathFoto
-        ]);
-
-        $userModel = new \App\Models\UsersModel();
-    $userModel->where('no_agen', $noAgen)
-              ->set('turn_left', 'turn_left + 1', false) // false → agar tidak di-escape
-              ->update();
+      $db->table('bukti_foto')->insert([
+    'no_agen' => $noAgen,
+    'deskripsi' => $deskripsi,
+    'path_foto' => $pathFoto,
+    'status_verifikasi' => 'pending' // tambahkan field ini!
+]);
 
         return redirect()->to('/spin');
     } else {
@@ -161,10 +162,17 @@ public function updateTurnLeftAndTotalSpin()
               'no_agen' => $noAgen 
         ];
 
+        $db = Database::connect();
+
+        $foto = $db->table('bukti_foto')
+           ->where('no_agen', $noAgen)
+           ->orderBy('id', 'DESC')
+           ->get()
+           ->getRow();
+
         return view('spin2', $data);
     }
 }
-
 
     // public function register()
     // {
